@@ -679,6 +679,16 @@ function renderActivation(activation = {}) {
   }
 }
 
+// Forms with unsaved typing. The 8-second refresh must not overwrite them
+// with the stored values, or a field reverts as soon as it loses focus.
+const dirtyForms = new Set();
+
+async function saveFormAndRefresh(form, save) {
+  await save();
+  dirtyForms.delete(form);
+  await refreshDashboard(true);
+}
+
 function renderOperator(strategy, runs, system) {
   const form = $('#strategy-form');
   const mapping = strategy ? {
@@ -699,6 +709,7 @@ function renderOperator(strategy, runs, system) {
     constraints: strategy.constraints
   } : {};
   for (const [name, value] of Object.entries(mapping)) {
+    if (dirtyForms.has(form)) break;
     if (form.elements[name] && document.activeElement !== form.elements[name]) form.elements[name].value = value ?? '';
   }
 
@@ -759,11 +770,15 @@ function populateSettings(profile = {}, settings = {}, providers = []) {
     timezone: profile.timezone,
     bannedTopics: (profile.bannedTopics || []).join(', ')
   };
+  const unsaved = dirtyForms.has(form);
   for (const [name, value] of Object.entries(mapping)) {
+    if (unsaved) break;
     if (form.elements[name] && document.activeElement !== form.elements[name]) form.elements[name].value = value || '';
   }
-  $('#approval-required').checked = settings.approval_required !== 'false';
-  $('#notifications-enabled').checked = settings.notification_enabled !== 'false';
+  if (!unsaved) {
+    $('#approval-required').checked = settings.approval_required !== 'false';
+    $('#notifications-enabled').checked = settings.notification_enabled !== 'false';
+  }
   const videoMapping = {
     videoProvider: settings.video_provider || 'slideshow',
     videoGenerationMode: settings.video_generation_mode || 'hybrid',
@@ -771,6 +786,7 @@ function populateSettings(profile = {}, settings = {}, providers = []) {
     videoMaxGeneratedSeconds: settings.video_max_generated_seconds || '60'
   };
   for (const [name, value] of Object.entries(videoMapping)) {
+    if (unsaved) break;
     if (form.elements[name] && document.activeElement !== form.elements[name]) form.elements[name].value = value;
   }
   const selected = providers.find(provider => provider.id === videoMapping.videoProvider);
@@ -1675,14 +1691,23 @@ function strategyFormData(status = ui.state?.channelStrategy?.status || 'draft')
   };
 }
 
+for (const selector of ['#strategy-form', '#profile-form']) {
+  const form = $(selector);
+  for (const type of ['input', 'change']) form.addEventListener(type, () => dirtyForms.add(form));
+}
+
 $('#strategy-form').addEventListener('submit', async event => {
   event.preventDefault();
-  await mutate('/api/operator/strategy', 'PUT', strategyFormData(), 'Channel strategy saved.').catch(() => {});
+  await saveFormAndRefresh($('#strategy-form'), () =>
+    mutate('/api/operator/strategy', 'PUT', strategyFormData(), 'Channel strategy saved.')
+  ).catch(() => {});
 });
 
 $('#activate-operator-button').addEventListener('click', async () => {
   if (!$('#strategy-form').reportValidity()) return;
-  await mutate('/api/operator/start', 'POST', strategyFormData('active'), 'Autonomous operator started.').catch(() => {});
+  await saveFormAndRefresh($('#strategy-form'), () =>
+    mutate('/api/operator/start', 'POST', strategyFormData('active'), 'Autonomous operator started.')
+  ).catch(() => {});
 });
 
 $('#pause-operator-button').addEventListener('click', async () => {
@@ -1728,16 +1753,18 @@ $('#profile-form').addEventListener('submit', async event => {
   const values = Object.fromEntries(new FormData(event.currentTarget));
   values.bannedTopics = values.bannedTopics.split(',').map(value => value.trim()).filter(Boolean);
   try {
-    await mutate('/api/profile', 'PUT', values, 'Channel setup saved.');
-    await mutate('/api/settings', 'PUT', {
-      approval_required: $('#approval-required').checked,
-      notification_enabled: $('#notifications-enabled').checked,
-      channel_timezone: values.timezone,
-      video_provider: values.videoProvider,
-      video_generation_mode: values.videoGenerationMode,
-      video_clip_duration: Number(values.videoClipDuration),
-      video_max_generated_seconds: Number(values.videoMaxGeneratedSeconds)
-    }, 'Operator settings saved.');
+    await saveFormAndRefresh(event.currentTarget, async () => {
+      await mutate('/api/profile', 'PUT', values, 'Channel setup saved.');
+      await mutate('/api/settings', 'PUT', {
+        approval_required: $('#approval-required').checked,
+        notification_enabled: $('#notifications-enabled').checked,
+        channel_timezone: values.timezone,
+        video_provider: values.videoProvider,
+        video_generation_mode: values.videoGenerationMode,
+        video_clip_duration: Number(values.videoClipDuration),
+        video_max_generated_seconds: Number(values.videoMaxGeneratedSeconds)
+      }, 'Operator settings saved.');
+    });
   } catch (_error) { /* toast already shown */ }
 });
 
