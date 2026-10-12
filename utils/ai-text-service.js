@@ -8,6 +8,10 @@ const GEMINI_MODELS = [
 ];
 const GEMINI_DEFAULT_MODEL = GEMINI_MODELS[0];
 
+// Gemini 3.x models spend thinking tokens from the same output budget, so a
+// tiny cap such as 20 tokens ends before any visible text is written.
+const GEMINI_MIN_OUTPUT_TOKENS = 1024;
+
 const PROVIDERS = {
   openai: {
     name: 'OpenAI',
@@ -106,7 +110,7 @@ class AITextService {
     const temperature = options.temperature ?? 0.7;
 
     if (this.gemini) {
-      const config = { maxOutputTokens: maxTokens };
+      const config = { maxOutputTokens: Math.max(maxTokens, GEMINI_MIN_OUTPUT_TOKENS) };
       if (!/^gemini-3\.(?:[5-9]|\d{2,})-/.test(model)) config.temperature = temperature;
       const response = await this.gemini.models.generateContent({
         model,
@@ -115,6 +119,11 @@ class AITextService {
       });
       const text = response && response.text;
       if (typeof text !== 'string' || !text.trim()) {
+        if (response?.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+          throw new Error(
+            `${this.providerName} used the whole ${config.maxOutputTokens}-token output budget before writing a reply. Raise maxTokens for this request.`
+          );
+        }
         throw new Error(
           `${this.providerName} returned an empty response. Check the API key and model quota — free-tier Gemini keys are rate-limited and can return empty output.`
         );
