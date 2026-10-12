@@ -1,4 +1,5 @@
 const sqlite3 = require('sqlite3').verbose();
+const { getContentLanguage } = require('../utils/content-language');
 const path = require('path');
 const fs = require('fs').promises;
 const { Logger } = require('../utils/logger');
@@ -708,9 +709,31 @@ class Database {
         'Subscribe for more useful videos.',
         '[]',
         'Clean, high-contrast, and readable',
-        process.env.CHANNEL_TIMEZONE || 'America/Chicago'
+        process.env.CHANNEL_TIMEZONE || getContentLanguage().timezone
       ]
     );
+
+    await this.localizeDefaultChannelProfile();
+  }
+
+  // Replaces the upstream English defaults with Brazilian ones. Only fields
+  // still holding an untouched default change; anything the operator typed stays.
+  async localizeDefaultChannelProfile() {
+    if (getContentLanguage().code !== 'pt-BR') return;
+    const replacements = [
+      ['brand_voice', 'Clear, credible, and engaging', 'Sempre em português do Brasil, tom direto, simpático e confiável.'],
+      ['goal', 'Grow a trusted, useful YouTube channel', 'Crescer um canal do YouTube útil e confiável'],
+      ['call_to_action', 'Subscribe for more useful videos.', 'Inscreva-se para mais vídeos úteis como este.'],
+      ['target_audience', 'General audience', 'Público brasileiro em geral'],
+      ['timezone', 'America/Chicago', process.env.CHANNEL_TIMEZONE || 'America/Sao_Paulo']
+    ];
+    for (const [column, upstreamDefault, value] of replacements) {
+      await this.executeQuery(
+        `UPDATE channel_profiles SET ${column} = ?, updated_at = datetime('now')
+         WHERE id = 'default' AND (${column} IS NULL OR ${column} = '' OR ${column} = ?)`,
+        [value, upstreamDefault]
+      );
+    }
   }
 
   // Content Strategy methods
@@ -1583,7 +1606,7 @@ class Database {
         profile.callToAction ?? current.call_to_action ?? '',
         JSON.stringify(profile.bannedTopics ?? current.bannedTopics ?? []),
         profile.visualStyle ?? current.visual_style ?? '',
-        profile.timezone ?? current.timezone ?? 'America/Chicago',
+        profile.timezone ?? current.timezone ?? getContentLanguage().timezone,
         current.created_at || null
       ]
     );
