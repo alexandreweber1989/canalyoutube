@@ -1,5 +1,6 @@
 const { Logger } = require('../utils/logger');
 const { AITextService } = require('../utils/ai-text-service');
+const { getContentLanguage } = require('../utils/content-language');
 
 class ContentStrategyAgent {
   constructor(db, credentials) {
@@ -56,7 +57,7 @@ class ContentStrategyAgent {
         part: 'snippet,statistics',
         chart: 'mostPopular',
         maxResults: 50,
-        regionCode: process.env.YOUTUBE_REGION || 'US'
+        regionCode: process.env.YOUTUBE_REGION || getContentLanguage().region
       });
 
       return response.data.items.map(video => ({
@@ -353,7 +354,8 @@ Allowed source catalog: ${JSON.stringify(research.sourceCatalog)}
 Recent topics to avoid repeating: ${JSON.stringify(research.recentTopics)}
 Operator-approved performance learnings to apply: ${JSON.stringify(research.approvedLearnings)}
 
-Do not invent trend data, statistics, sources, URLs, or factual claims. Use only exact URLs from the supplied source catalog. Apply only the supplied approved learnings; pending or rejected recommendations are not authorized. Prefer evergreen topics when the supplied signals are weak. Learnings with category "audience_demand" are audience-requested topics mined from real comments on published videos; prefer planning a video that directly answers one when it fits the channel objective, and cite it in the rationale.`;
+Do not invent trend data, statistics, sources, URLs, or factual claims. Use only exact URLs from the supplied source catalog. Apply only the supplied approved learnings; pending or rejected recommendations are not authorized. Prefer evergreen topics when the supplied signals are weak. Learnings with category "audience_demand" are audience-requested topics mined from real comments on published videos; prefer planning a video that directly answers one when it fits the channel objective, and cite it in the rationale.
+${getContentLanguage().promptRule}`;
 
     try {
       const response = await this.aiTextService.generateText(prompt, { maxTokens: 1800, temperature: 0.65 });
@@ -443,7 +445,8 @@ Return only valid JSON with this exact shape:
 Requested topic: ${requestedTopic || 'none'}
 Trending topics available: ${trendingTopics || 'Technology Trends'}
 Channel target audience: ${process.env.TARGET_AUDIENCE || 'General audience interested in educational content'}
-Avoid fabricated claims and unsupported numbers.`;
+Avoid fabricated claims and unsupported numbers.
+${getContentLanguage().promptRule}`;
 
     try {
       const response = await this.aiTextService.generateText(prompt, {
